@@ -643,6 +643,32 @@
 
     const STORAGE_KEY = 'ecce2026_wheel_names';
 
+    // ===== Google Sheet bridge =====
+    // Paste your Apps Script Web App URL here (ends in /exec)
+    const SHEET_API_URL = "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec";
+    
+    async function fetchNamesFromSheet() {
+      if (!SHEET_API_URL || SHEET_API_URL.includes('YOUR_SCRIPT_ID')) return;
+      try {
+        const res = await fetch(SHEET_API_URL + '?t=' + Date.now(), { cache: 'no-store' });
+        const data = await res.json();
+        if (data && Array.isArray(data.names)) {
+          // Only rebuild if the list actually changed
+          const same = data.names.length === items.length &&
+                       data.names.every((n, i) => n === items[i]);
+          if (!same) {
+            items = data.names;
+            namesTextarea.value = items.join('\n');
+            saveNames();
+            refreshBadgeAndCta();
+            drawWheel();
+          }
+        }
+      } catch (e) {
+        console.warn('Sheet fetch failed:', e);
+      }
+    }
+
     let items = [];
     let currentAngle = 0;
     let isSpinning = false;
@@ -1530,6 +1556,10 @@
       refreshBadgeAndCta();
       drawWheel();
       renderQR();
+
+      // Initial Sheet pull + poll every 5s for new form submissions
+      fetchNamesFromSheet();
+      setInterval(fetchNamesFromSheet, 5000);
 
       // Auto-open registration if scanned
       if (detectScanMode()) {
