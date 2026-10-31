@@ -580,6 +580,22 @@
     ];
 
     const STORAGE_KEY = 'ecce2026_wheel_names';
+    const DRAWN_KEY   = 'ecce2026_drawn_names';
+    
+    // Names already drawn — never show again even if still in the Sheet
+    let drawnNames = new Set();
+    function loadDrawnNames() {
+      try {
+        const raw = localStorage.getItem(DRAWN_KEY);
+        if (raw) {
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr)) drawnNames = new Set(arr.map(s => String(s).toLowerCase()));
+        }
+      } catch (e) {}
+    }
+    function saveDrawnNames() {
+      try { localStorage.setItem(DRAWN_KEY, JSON.stringify([...drawnNames])); } catch (e) {}
+    }
 
     // ===== Google Sheet bridge =====
     const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbyDLjezLTSzjpWuoPi3AMzMe6uQDBt0ioZS9MwbuxLomZOV2yZ5vX9kacrDmtN5648T/exec";
@@ -593,10 +609,13 @@
         const res = await fetch(SHEET_API_URL + '?t=' + Date.now(), { cache: 'no-store' });
         const data = await res.json();
         if (data && Array.isArray(data.names)) {
-          const same = data.names.length === items.length &&
-                       data.names.every((n, i) => n === items[i]);
+          // Drop names that have already been drawn
+          const filtered = data.names.filter(n => !drawnNames.has(String(n).trim().toLowerCase()));
+        
+          const same = filtered.length === items.length &&
+                       filtered.every((n, i) => n === items[i]);
           if (!same) {
-            items = data.names;
+            items = filtered;
             namesTextarea.value = items.join('\n');
             saveNames();
             refreshBadgeAndCta();
@@ -857,8 +876,10 @@
     }
 
     function clearAllNames() {
-      if (items.length > 0 && !confirm('Clear all names from the wheel?')) return;
+      if (!confirm('Clear all names from the wheel?\n\nThis also resets the "already drawn" history, so names from the Google Sheet will reappear.')) return;
       items = [];
+      drawnNames.clear();
+      saveDrawnNames();
       namesTextarea.value = '';
       saveNames();
       refreshBadgeAndCta();
@@ -925,14 +946,17 @@
       if (removeOnWinCheck.checked) {
         const index = parseInt(winnerModal.dataset.winnerIndex, 10);
         if (!isNaN(index) && items[index] !== undefined) {
+          const removed = items[index];
           items.splice(index, 1);
+          // Remember this name so it never reappears from the Sheet
+          drawnNames.add(String(removed).trim().toLowerCase());
+          saveDrawnNames();
           namesTextarea.value = items.join('\n');
           saveNames();
           refreshBadgeAndCta();
           drawWheel();
         }
       }
-    }
 
     function handleNextSpin(e) {
       if (e) e.stopPropagation();
@@ -1076,7 +1100,13 @@
         registerError.style.color = '';
         return false;
       }
-      if (items.some(n => n.toLowerCase() === name.toLowerCase())) {
+      const nameKey = name.toLowerCase();
+      if (drawnNames.has(nameKey)) {
+        registerError.textContent = `${name} has already been drawn!`;
+        registerError.style.color = '';
+        return false;
+      }
+      if (items.some(n => n.toLowerCase() === nameKey)) {
         registerError.textContent = `${name} is already on the wheel!`;
         registerError.style.color = '';
         return false;
@@ -1486,7 +1516,8 @@
 
     // ===== Boot =====
     window.addEventListener('load', () => {
-      items = loadNames();
+      loadDrawnNames();
+      items = loadNames().filter(n => !drawnNames.has(n.trim().toLowerCase()));
       namesTextarea.value = items.join('\n');
       refreshBadgeAndCta();
       drawWheel();
